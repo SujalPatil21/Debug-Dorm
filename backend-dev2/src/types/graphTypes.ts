@@ -34,6 +34,12 @@ export type GraphNode = {
   framework?: string;
   isConfig?: boolean;
   totalDeps?: number;
+  priority?: "HIGH" | "MEDIUM" | "LOW";
+  priorityScore?: number;
+  normalizedScore?: number;
+  semanticScore?: number;
+  inDegree?: number;
+  outDegree?: number;
 };
 
 export type GraphEdge = {

@@ -14,7 +14,8 @@ import 'reactflow/dist/style.css'
 import {
   ArrowLeft, Sparkles, X, ArrowDownRight, ArrowUpRight,
   Cpu, GitBranch, Layers, AlertTriangle, FileCode,
-  TrendingUp, ChevronRight, MessageSquare, Send, Bot, User
+  TrendingUp, ChevronRight, MessageSquare, Send, Bot, User,
+  Zap, Settings
 } from 'lucide-react'
 import { analyzeRepository } from './services/api'
 import ArchNode from './components/ArchNode'
@@ -81,6 +82,10 @@ export default function AnalysisPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [highlightState, setHighlightState] = useState({
+    mode: 'none', // 'node' | 'multi' | 'none'
+    nodes: []     // array of node IDs
+  });
   const [status, setStatus] = useState('INGESTING');
   const [showOverlay, setShowOverlay] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -230,66 +235,133 @@ export default function AnalysisPage() {
     return () => clearTimeout(t);
   }, [nodes, showOverlay, fitView]);
 
-  // ── Focus mode: selection highlighting ───────────────────────────────────
+  // ── Unified Highlighting Engine ──────────────────────────────────────────
   useEffect(() => {
-    if (!selectedNode) {
-      setNodes(prev => prev.map(n => ({ ...n, style: { opacity: 1 } })));
-      setEdges(prev => prev.map(e => ({
-        ...e, style: { ...EDGE_DEFAULT }, markerEnd: { ...MARKER_DEFAULT },
-      })));
-      return;
-    }
+    const hasHighlight = highlightState.nodes.length > 0;
 
-    const neighborIds = new Set(
-      rawEdges
-        .filter(e => e.source === selectedNode.id || e.target === selectedNode.id)
-        .flatMap(e => [e.source, e.target])
-    );
-    neighborIds.add(selectedNode.id);
-
-    setNodes(prev => prev.map(n => ({
-      ...n,
-      style: { opacity: neighborIds.has(n.id) ? 1 : 0.1 },
-    })));
-
-    setEdges(prev => prev.map(e => {
-      const active = e.source === selectedNode.id || e.target === selectedNode.id;
+    setNodes(prev => prev.map(n => {
+      const isFocused = !hasHighlight || highlightState.nodes.includes(n.id);
       return {
-        ...e,
-        style: active ? { ...EDGE_ACTIVE } : { ...EDGE_DIM },
-        markerEnd: active ? { ...MARKER_ACTIVE } : { ...MARKER_DEFAULT, color: 'rgba(156,163,175,0.1)' },
+        ...n,
+        style: {
+          ...n.style,
+          opacity: isFocused ? 1 : 0.25
+        }
       };
     }));
-  }, [selectedNode, rawEdges, setNodes, setEdges]);
+
+    setEdges(prev => prev.map(e => {
+      const isConnected = !hasHighlight || 
+                          highlightState.nodes.includes(e.source) || 
+                          highlightState.nodes.includes(e.target);
+      return {
+        ...e,
+        style: {
+          ...e.style,
+          opacity: isConnected ? 1 : 0.15
+        }
+      };
+    }));
+
+    if (highlightState.mode === 'multi' && highlightState.nodes.length > 0) {
+      const nodesToFocus = nodes.filter(n => highlightState.nodes.includes(n.id));
+      if (nodesToFocus.length > 0) {
+        const timeoutId = setTimeout(() => {
+          fitView({ nodes: nodesToFocus, duration: 500, padding: 0.2 });
+        }, 100);
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [highlightState, setNodes, setEdges, fitView]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const onNodeClick = useCallback((_, n) => {
     setSelectedNode(n.data);
-    // Automatically greet if switching focus
+    setHighlightState({ mode: 'node', nodes: [n.id] });
+    
     if (activeTab === 'CHAT') {
       const fileName = n.data.label || n.data.id.split('/').pop();
-      setMessages(prev => [...prev, { role: 'ai', text: `I see you've selected ${fileName}. It has ${n.data.dependencies?.length || 0} dependencies and an impact level of ${impactMeta(n.data.impact || 0).label}. What would you like to know about it?` }]);
+      setMessages(prev => [...prev, { role: 'ai', text: `I see you've selected ${fileName}. It has ${n.data.dependencies?.length || 0} dependencies and an impact level of ${n.data.priority || 'LOW'}. What would you like to know about it?` }]);
     }
   }, [activeTab]);
 
-  const onPaneClick = useCallback(() => setSelectedNode(null), []);
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+    setHighlightState({ mode: 'none', nodes: [] });
+  }, []);
 
   const handleSendMessage = () => {
     if (!chatInput.trim()) return;
 
-    const userMsg = chatInput.trim();
+    const userMsg = chatInput.trim().toLowerCase();
     setChatInput('');
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setMessages(prev => [...prev, { role: 'user', text: chatInput.trim() }]);
 
-    // Dummy AI response logic
+    // ── Deterministic Intent Engine ──────────────────────────────────────────
     setTimeout(() => {
-      let response = "I'm analyzing the relationship between these modules. This file appears to be a core part of the system's logic.";
-      if (selectedNode) {
-        const name = selectedNode.label || selectedNode.id.split('/').pop();
-        response = `Regarding ${name}, it is highly connected (Impact: ${impactMeta(selectedNode.impact || 0).label}). It imports ${selectedNode.dependencies?.length || 0} files and is used by ${selectedNode.dependents?.length || 0} other parts of the system.`;
+      let aiResponse = { text: '', highlightNodes: [] };
+
+      // 1. Intent: Overview
+      if (userMsg.includes('overview') || userMsg.includes('summary')) {
+        const total      = nodes.length;
+        const critical   = nodes.filter(n => n.data.priority === 'HIGH').length;
+        const percent    = total > 0 ? ((critical / total) * 100).toFixed(0) : 0;
+        const stacks     = [...new Set(nodes.map(n => n.data.framework).filter(Boolean))];
+        const stackList  = stacks.length > 0 ? stacks.join(', ') : 'Not detected';
+
+        aiResponse.text = `🔍 System Overview\n\n• Total Files: ${total}\n• Critical Files: ${critical}\n• Criticality: ${percent}%\n• Tech Stack: ${stackList}\n\nThis summary is based on structural connectivity and code patterns.`;
+      } 
+      
+      // 2. Intent: Critical / Important
+      else if (userMsg.includes('critical') || userMsg.includes('important')) {
+        const topHigh = nodes
+          .filter(n => n.data.priority === 'HIGH')
+          .sort((a, b) => (b.data.inDegree || 0) - (a.data.inDegree || 0))
+          .slice(0, 5);
+
+        if (topHigh.length > 0) {
+          const list = topHigh.map((n, i) => `${i + 1}. ${n.data.label} (Used by ${n.data.inDegree || 0} files)`).join('\n');
+          aiResponse.text = `🔴 Critical Files\n\n${list}\n\nI have highlighted these architectural hubs in the graph.`;
+          aiResponse.highlightNodes = topHigh.map(n => n.id);
+        } else {
+          aiResponse.text = "No critical hubs were identified based on current metrics.";
+        }
       }
-      setMessages(prev => [...prev, { role: 'ai', text: response }]);
-    }, 600);
+
+      // 3. Intent: Explanation (Node Context)
+      else if (userMsg.includes('explain') || userMsg.includes('what is') || selectedNode) {
+        const node = selectedNode || (nodes.find(n => userMsg.includes(n.data.label?.toLowerCase()))?.data);
+        
+        if (node) {
+          const inDeg = node.inDegree || 0;
+          const outDeg = node.outDegree || 0;
+          const priority = node.priority || 'LOW';
+          
+          let impactText = "This file has limited interaction with the system.";
+          if (inDeg === 0 && outDeg === 0) impactText = "This file is isolated and not connected to other parts.";
+          else if (priority === 'HIGH')    impactText = "This file affects multiple core components of the system.";
+          else if (priority === 'MEDIUM')  impactText = "This file is connected to several modules.";
+
+          aiResponse.text = `🔍 File Analysis: ${node.label}\n\n• Impact Level: ${priority}\n• Imports: ${outDeg} files\n• Used by: ${inDeg} files\n\n${impactText}`;
+          aiResponse.highlightNodes = [node.id || nodes.find(n => n.data.label === node.label)?.id].filter(Boolean);
+        } else {
+          aiResponse.text = "Please select a node or mention a file name for a detailed analysis.";
+        }
+      }
+
+      // 4. Fallback
+      else {
+        aiResponse.text = "I can explain files, show critical components, or provide a system overview. Try asking for 'critical files' or 'overview'.";
+      }
+
+      setMessages(prev => [...prev, { role: 'ai', text: aiResponse.text }]);
+      if (aiResponse.highlightNodes.length > 0) {
+        setHighlightState({
+          mode: aiResponse.highlightNodes.length > 1 ? 'multi' : 'node',
+          nodes: aiResponse.highlightNodes
+        });
+      }
+    }, 400);
   };
 
   // ── Sidebar computed values ───────────────────────────────────────────────
@@ -608,20 +680,70 @@ export default function AnalysisPage() {
                   </div>
                 )}
 
-                {/* Metrics row */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                  {[
+                    {
+                      label: 'Priority Level',
+                      sub: 'Adaptive Rank',
+                      value: selectedNode.priority,
+                      icon: <Zap style={{ width: '14px', height: '14px', color: '#FBBF24' }} />,
+                      color: selectedNode.priority === 'HIGH' ? '#EF4444' : selectedNode.priority === 'MEDIUM' ? '#10B981' : '#9CA3AF',
+                    },
+                    {
+                      label: 'Intelligence',
+                      sub: 'Priority Score',
+                      value: selectedNode.priorityScore?.toFixed(1) || 0,
+                      icon: <Settings style={{ width: '14px', height: '14px', color: '#A78BFA' }} />,
+                      color: '#A78BFA',
+                    },
+                    {
+                      label: 'Semantic',
+                      sub: 'Keyword Score',
+                      value: selectedNode.semanticScore || 0,
+                      icon: <FileCode style={{ width: '14px', height: '14px', color: '#60A5FA' }} />,
+                      color: '#60A5FA',
+                    },
+                    {
+                      label: 'Normalized',
+                      sub: 'Project Depth',
+                      value: selectedNode.normalizedScore?.toFixed(2) || 0,
+                      icon: <ChevronRight style={{ width: '14px', height: '14px', color: '#34D399' }} />,
+                      color: '#34D399',
+                    },
+                  ].map(({ label, sub, value, icon, color }) => (
+                    <div key={label} style={{
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.07)',
+                      borderRadius: '12px', padding: '14px 14px 12px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                        {icon}
+                        <span style={{ fontSize: '10px', fontWeight: 800, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                          {label}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '18px', fontWeight: 900, letterSpacing: '-0.02em', color, lineHeight: 1 }}>
+                        {value}
+                      </div>
+                      <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.25)', marginTop: '4px' }}>{sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Connectivity Row */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
                   {[
                     {
-                      label: selectedNode.isConfig ? 'Total Deps' : 'Dependencies',
-                      sub: selectedNode.isConfig ? 'NPM Packages' : 'Files imported',
-                      value: selectedNode.isConfig ? (selectedNode.totalDeps || 0) : sidebarDeps.length,
+                      label: selectedNode.isConfig ? 'Total Deps' : 'In-Degree',
+                      sub: selectedNode.isConfig ? 'NPM Packages' : 'Impact Count',
+                      value: selectedNode.isConfig ? (selectedNode.totalDeps || 0) : sidebarDepts.length,
                       icon: <ArrowDownRight style={{ width: '14px', height: '14px', color: '#60A5FA' }} />,
                       color: '#60A5FA',
                     },
                     {
-                      label: 'Dependents',
-                      sub: 'Files that import',
-                      value: sidebarDepts.length,
+                      label: 'Out-Degree',
+                      sub: 'Complexity',
+                      value: sidebarDeps.length,
                       icon: <ArrowUpRight style={{ width: '14px', height: '14px', color: '#34D399' }} />,
                       color: '#34D399',
                     },

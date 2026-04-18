@@ -10,6 +10,7 @@ import { detectLayer } from "./layerDetector";
 import { tokenize } from "../utils/tokenizer";
 import { computeLayout } from "./layoutEngine";
 import { buildViews } from "../views/viewBuilder";
+import { computePriority } from "../intelligence/priorityEngine";
 
 /**
  * Builds the architecture graph and computes all derived views and metadata.
@@ -220,8 +221,11 @@ export function buildArchitectureGraph(input: {
       }
   });
 
+  // 6c. Adaptive Priority Enrichment
+  const enrichedNodes = computePriority(finalSubset, sanitizedEdges);
+
   // 7. Assemble Result
-  if (finalSubset.length < 1) {
+  if (enrichedNodes.length < 1) {
       return {
           graph: { nodes: [], edges: [] },
           views: { default: [], highImpact: [], entryPoints: [], byFolder: {} },
@@ -234,7 +238,7 @@ export function buildArchitectureGraph(input: {
 
   return {
     graph: {
-      nodes: finalSubset,
+      nodes: enrichedNodes,
       edges: sanitizedEdges
     },
     views: { default: [], highImpact: [], entryPoints: [], byFolder: {} },

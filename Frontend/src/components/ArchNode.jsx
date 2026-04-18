@@ -1,113 +1,117 @@
 import React, { memo, useState } from 'react';
 import { Handle, Position } from 'reactflow';
+import { 
+  FileCode, 
+  ChevronRight, 
+  ArrowUpRight, 
+  ArrowDownRight,
+  Settings,
+  Zap,
+  Box,
+  Code2
+} from 'lucide-react';
+import { getPriorityStyle } from '../utils/graph/priorityMapper';
 
 /**
- * ArchNode — Final visual spec
- *
- * ENTRY:      bg #4F46E5  border #A78BFA  glow purple-lg
- * HIGH:       bg #2563EB  border #60A5FA  glow blue
- * MEDIUM:     bg #059669  border #34D399  glow green
- * LOW/NORMAL: bg #374151  border #4F46E5  glow indigo-sm
+ * ArchNode - Adaptive & Production Ready
+ * Handles priority-based styling with color preservation for SYSTEM/CONFIG.
  */
-const ArchNode = ({ data, selected }) => {
+export const ArchNode = ({ data, selected }) => {
     const [hovered, setHovered] = useState(false);
-
-    const isEntry  = data.isEntry || false;
-    const impact   = data.impact  || 0;
+    
+    // --- State & Context ---
+    const priority = data?.priority;
+    const isEntry  = data.isEntry || data.id === 'SYSTEM';
+    const isConfig = data.isConfig || data.id === 'package.json';
+    const framework = data.framework || null; 
     const deps     = (data.dependencies || []).length;
     const depts    = (data.dependents   || []).length;
     const totalDeg = deps + depts;
 
-    // Tier classification
-    const isHigh   = !isEntry && totalDeg >= 6;
-    const isMedium = !isEntry && !isHigh && totalDeg >= 2;
-    const isLow    = !isEntry && !isHigh && !isMedium;
+    // Safety Log
+    console.log("Priority:", priority);
 
-    const isConfig = data.isConfig || data.id === 'package.json';
-    const framework = data.framework || null; // 'React', 'Express', etc.
+    // --- Adaptive Priority Mapping ---
+    const pStyle = getPriorityStyle(priority);
 
-    // ── Palette per spec ──────────────────────────────────────────
-    let bg, borderColor, glowColor, textColor, badgeBg, badgeText;
+    // ── Palette Selection ──
+    let bg, borderColor, textColor, badgeBg, badgeText;
 
     if (isConfig) {
-        // Amber/Orange Config Theme
         bg          = '#D97706';
         borderColor = '#FBBF24';
-        glowColor   = selected || hovered ? 'rgba(245, 158, 11, 1)' : 'rgba(245, 158, 11, 0.6)';
         textColor   = '#FFFFFF';
         badgeBg     = 'rgba(255,255,255,0.25)';
         badgeText   = '#FEF3C7';
     } else if (isEntry) {
         bg          = '#4F46E5';
         borderColor = '#A78BFA';
-        glowColor   = selected || hovered ? 'rgba(139,92,246,1)'   : 'rgba(139,92,246,0.8)';
         textColor   = '#FFFFFF';
         badgeBg     = 'rgba(255,255,255,0.2)';
         badgeText   = '#EDE9FE';
-    } else if (isHigh) {
-        bg          = '#2563EB';
-        borderColor = '#60A5FA';
-        glowColor   = selected || hovered ? 'rgba(59,130,246,0.9)'  : 'rgba(59,130,246,0.5)';
-        textColor   = '#FFFFFF';
-        badgeBg     = 'rgba(255,255,255,0.18)';
-        badgeText   = '#BFDBFE';
-    } else if (isMedium) {
-        bg          = '#059669';
-        borderColor = '#34D399';
-        glowColor   = selected || hovered ? 'rgba(5,150,105,0.9)'   : 'rgba(5,150,105,0.5)';
-        textColor   = '#FFFFFF';
-        badgeBg     = 'rgba(255,255,255,0.15)';
-        badgeText   = '#A7F3D0';
     } else {
-        bg          = '#374151';
-        borderColor = selected ? '#6366F1' : (hovered ? '#818CF8' : '#4F46E5');
-        glowColor   = selected ? 'rgba(99,102,241,0.6)' : (hovered ? 'rgba(99,102,241,0.35)' : 'rgba(79,70,229,0.25)');
+        bg          = pStyle.background;
+        borderColor = pStyle.borderColor;
         textColor   = '#F9FAFB';
-        badgeBg     = 'rgba(255,255,255,0.08)';
+        badgeBg     = 'rgba(255,255,255,0.1)';
         badgeText   = '#9CA3AF';
     }
+
+    // ── Style Merging (Special Node Preservation) ──
+    const isSpecial = isEntry || isConfig;
+
+    // Extract dynamic glow from mapper
+    const glowColor = (selected || hovered) 
+        ? pStyle.glowColor.replace('0.6', '0.9').replace('0.4', '0.7').replace('0.2', '0.5') 
+        : pStyle.glowColor;
+
+    const baseStyle = {
+        width: '200px',
+        background: bg,
+        borderRadius: '14px',
+        border: `2px solid ${borderColor}`,
+        padding: '12px 16px',
+        color: textColor,
+        fontWeight: 600,
+        boxSizing: 'border-box',
+        transition: 'all 0.18s ease',
+        cursor: 'pointer',
+        position: 'relative',
+        overflow: 'hidden',
+    };
+
+    const finalStyle = isSpecial 
+        ? {
+            ...baseStyle,
+            boxShadow: `0 0 20px ${glowColor}, 0 4px 20px rgba(0,0,0,0.6)`,
+            transform: selected ? 'scale(1.15)' : (hovered ? 'scale(1.05)' : pStyle.transform),
+            opacity: 1
+          }
+        : {
+            ...baseStyle,
+            boxShadow: `0 0 15px ${glowColor}, 0 4px 15px rgba(0,0,0,0.5)`,
+            transform: selected ? 'scale(1.15)' : (hovered ? 'scale(1.05)' : pStyle.transform),
+            opacity: selected || hovered ? 1 : pStyle.opacity
+          };
 
     // --- Framework Tinting (Subtle 5% overlay) ---
     const tintColor = framework === 'React' ? 'rgba(16, 185, 129, 0.08)' 
                     : framework === 'Express' ? 'rgba(59, 130, 246, 0.08)' 
                     : 'transparent';
 
-    // ── Scale ─────────────────────────────────────────────────────
-    const scale = isConfig ? (selected ? 1.25 : 1.2)
-                : isEntry ? (selected ? 1.35 : 1.3)
-                : selected ? 1.12 : (hovered ? 1.06 : 1.0);
-
-    // ── Label ─────────────────────────────────────────────────────
+    // ── Label & UI ──
     const raw   = data.label || (data.id || '').split('/').pop() || '';
     const label = raw.length > 22 ? raw.slice(0, 20) + '…' : raw;
     const badge = isConfig ? 'CONFIG'
                 : isEntry ? 'ENTRY'
-                : isHigh  ? 'HIGH'
-                : isMedium ? 'MED'
-                : (data.role || raw.split('.').pop()?.toUpperCase() || 'FILE');
+                : (priority || 'FILE');
 
     return (
         <div
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
             title={`${raw}\nPath: ${data.id || ''}\nDependencies: ${deps} | Dependents: ${depts}`}
-            style={{
-                width: '200px',
-                background: bg,
-                borderRadius: '14px',
-                border: `2px solid ${borderColor}`,
-                padding: '12px 16px',
-                color: textColor,
-                fontWeight: 600,
-                boxSizing: 'border-box',
-                boxShadow: `0 0 ${isEntry ? 25 : isHigh ? 18 : isMedium ? 14 : isConfig ? 18 : 10}px ${glowColor}, 0 4px 20px rgba(0,0,0,0.6)`,
-                transform: `scale(${scale})`,
-                transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease',
-                cursor: 'pointer',
-                opacity: isLow && !selected && !isConfig ? 0.85 : 1,
-                position: 'relative',
-                overflow: 'hidden',
-            }}
+            style={finalStyle}
         >
             {/* Framework Tint Overlay */}
             <div style={{
