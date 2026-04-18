@@ -3,6 +3,7 @@ import { buildArchitectureGraph } from "./graph/graphBuilder";
 import { buildViews } from "./views/viewBuilder";
 import { tokenize } from "./utils/tokenizer";
 import { deepFreeze } from "./utils/deepFreeze";
+import { handleQuery } from "./ai/queryHandler";
 
 const runTest = (name: string, input: any) => {
   console.log(`\n--- TEST: ${name} ---`);
@@ -83,3 +84,35 @@ const largeFiles = Array.from({ length: 201 }, (_, i) => ({
   extension: ".ts"
 }));
 runTest("Large Dataset Check", { files: largeFiles, dependencies: [] });
+
+// AI Query Pipeline Tests
+const runQueryTest = (name: string, query: string, context: any) => {
+    console.log(`\n--- QUERY TEST: ${name} [Query: "${query}"] ---`);
+    const response = handleQuery({ query, context });
+    console.log("Answer:", response.answer);
+    console.log("Highlights:", response.highlightNodes);
+    console.log("Focus Node:", response.focusNode);
+    if (response.highlightNodes.length > 0 && response.focusNode) {
+        console.log("✅ Query Success");
+    } else {
+        console.error("❌ Query Failure");
+    }
+};
+
+// Mock Analysis Result for Queries
+const mockContext = buildArchitectureGraph({
+    files: [
+        { id: "src/auth/authService.ts", content: "", extension: ".ts" },
+        { id: "src/auth/loginController.ts", content: "", extension: ".ts" },
+        { id: "src/db/connection.ts", content: "", extension: ".ts" },
+        { id: "src/index.ts", content: "", extension: ".ts" }
+    ],
+    dependencies: [
+        { from: "src/index.ts", to: "src/auth/loginController.ts" }
+    ]
+});
+
+runQueryTest("Direct Token Match", "authentication", mockContext);
+runQueryTest("Multi Token Match", "auth service", mockContext);
+runQueryTest("Random Irrelevant Query", "xyzabc", mockContext);
+runQueryTest("Empty Query", "", mockContext);

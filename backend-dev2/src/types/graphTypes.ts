@@ -62,3 +62,13 @@ export type AnalysisResult = {
     payloadSize: number;
   };
 };
+export type QueryRequest = {
+  query: string;
+  context: AnalysisResult;
+};
+
+export type QueryResponse = {
+  answer: string;
+  highlightNodes: string[];
+  focusNode: string;
+};
