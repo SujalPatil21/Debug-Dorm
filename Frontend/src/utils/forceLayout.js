@@ -39,6 +39,7 @@ export function applyForceLayout(nodes, edges, width = 1400, height = 900) {
   // Clone nodes — D3 mutates them
   const simNodes = nodes.map(n => ({
     id: n.id,
+    type: n.data?.type || 'file',
     isEntry: n.data?.isEntry || false,
     degree: degree[n.id] || 0,
     // Seed entry near center, others scattered
@@ -74,8 +75,13 @@ export function applyForceLayout(nodes, edges, width = 1400, height = 900) {
     .force('collision', forceCollide().radius(130).strength(0.9))
 
     // SECTION 3: ADD RADIAL DISTRIBUTION EFFECT
-    // Pushes nodes outward toward a ring to avoid center-bias
-    .force('radial', forceRadial(500, cx, cy).strength(0.03))
+    // Pushes nodes outward toward specific rings
+    .force('radial', forceRadial(d => {
+      if (d.type === 'config-root') return 120;
+      if (d.type === 'config-sub') return 220;
+      return 500;
+    }, cx, cy).strength(0.12))
+
 
     // Gravity variables
     .force('x', forceX(cx).strength(0.04))

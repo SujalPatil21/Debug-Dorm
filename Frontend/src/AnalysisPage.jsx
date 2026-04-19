@@ -17,7 +17,7 @@ import {
   TrendingUp, ChevronRight, MessageSquare, Send, Bot, User,
   Zap, Settings
 } from 'lucide-react'
-import { analyzeRepository } from './services/api'
+import { analyzeRepository, queryCodebase } from './services/api'
 import ArchNode from './components/ArchNode'
 import { applyForceLayout } from './utils/forceLayout'
 
@@ -272,7 +272,7 @@ export default function AnalysisPage() {
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [highlightState, setNodes, setEdges, fitView]);
+  }, [highlightState, setNodes, setEdges, fitView, nodes]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const onNodeClick = useCallback((_, n) => {
@@ -290,78 +290,60 @@ export default function AnalysisPage() {
     setHighlightState({ mode: 'none', nodes: [] });
   }, []);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!chatInput.trim()) return;
 
-    const userMsg = chatInput.trim().toLowerCase();
-    setChatInput('');
-    setMessages(prev => [...prev, { role: 'user', text: chatInput.trim() }]);
+    const userMessage = {
+      role: "user",
+      text: chatInput.trim(),
+    };
 
-    // ── Deterministic Intent Engine ──────────────────────────────────────────
-    setTimeout(() => {
-      let aiResponse = { text: '', highlightNodes: [] };
+    setMessages(prev => [...prev, userMessage]);
+    setChatInput("");
 
-      // 1. Intent: Overview
-      if (userMsg.includes('overview') || userMsg.includes('summary')) {
-        const total      = nodes.length;
-        const critical   = nodes.filter(n => n.data.priority === 'HIGH').length;
-        const percent    = total > 0 ? ((critical / total) * 100).toFixed(0) : 0;
-        const stacks     = [...new Set(nodes.map(n => n.data.framework).filter(Boolean))];
-        const stackList  = stacks.length > 0 ? stacks.join(', ') : 'Not detected';
+    try {
+      console.log("📡 Sending to backend:", chatInput);
 
-        aiResponse.text = `🔍 System Overview\n\n• Total Files: ${total}\n• Critical Files: ${critical}\n• Criticality: ${percent}%\n• Tech Stack: ${stackList}\n\nThis summary is based on structural connectivity and code patterns.`;
-      } 
-      
-      // 2. Intent: Critical / Important
-      else if (userMsg.includes('critical') || userMsg.includes('important')) {
-        const topHigh = nodes
-          .filter(n => n.data.priority === 'HIGH')
-          .sort((a, b) => (b.data.inDegree || 0) - (a.data.inDegree || 0))
-          .slice(0, 5);
-
-        if (topHigh.length > 0) {
-          const list = topHigh.map((n, i) => `${i + 1}. ${n.data.label} (Used by ${n.data.inDegree || 0} files)`).join('\n');
-          aiResponse.text = `🔴 Critical Files\n\n${list}\n\nI have highlighted these architectural hubs in the graph.`;
-          aiResponse.highlightNodes = topHigh.map(n => n.id);
-        } else {
-          aiResponse.text = "No critical hubs were identified based on current metrics.";
+      // Construct context for the query
+      const context = {
+        nodeMap: nodes.reduce((acc, curr) => ({ ...acc, [curr.id]: curr.data }), {}),
+        graph: {
+          nodes: nodes.map(n => n.data),
+          edges: rawEdges
+        },
+        queryContext: {
+          topNodes: nodes.slice(0, 10).map(n => n.id)
         }
-      }
+      };
 
-      // 3. Intent: Explanation (Node Context)
-      else if (userMsg.includes('explain') || userMsg.includes('what is') || selectedNode) {
-        const node = selectedNode || (nodes.find(n => userMsg.includes(n.data.label?.toLowerCase()))?.data);
-        
-        if (node) {
-          const inDeg = node.inDegree || 0;
-          const outDeg = node.outDegree || 0;
-          const priority = node.priority || 'LOW';
-          
-          let impactText = "This file has limited interaction with the system.";
-          if (inDeg === 0 && outDeg === 0) impactText = "This file is isolated and not connected to other parts.";
-          else if (priority === 'HIGH')    impactText = "This file affects multiple core components of the system.";
-          else if (priority === 'MEDIUM')  impactText = "This file is connected to several modules.";
+      const data = await queryCodebase(chatInput.trim(), context);
+      console.log("📦 Backend response:", data);
 
-          aiResponse.text = `🔍 File Analysis: ${node.label}\n\n• Impact Level: ${priority}\n• Imports: ${outDeg} files\n• Used by: ${inDeg} files\n\n${impactText}`;
-          aiResponse.highlightNodes = [node.id || nodes.find(n => n.data.label === node.label)?.id].filter(Boolean);
-        } else {
-          aiResponse.text = "Please select a node or mention a file name for a detailed analysis.";
-        }
-      }
+      const aiMessage = {
+        role: "ai",
+        text: data.answer || "No response received.",
+      };
 
-      // 4. Fallback
-      else {
-        aiResponse.text = "I can explain files, show critical components, or provide a system overview. Try asking for 'critical files' or 'overview'.";
-      }
+      setMessages(prev => [...prev, aiMessage]);
 
-      setMessages(prev => [...prev, { role: 'ai', text: aiResponse.text }]);
-      if (aiResponse.highlightNodes.length > 0) {
+      // Graph highlights from AI
+      if (data.highlightNodes && data.highlightNodes.length > 0) {
         setHighlightState({
-          mode: aiResponse.highlightNodes.length > 1 ? 'multi' : 'node',
-          nodes: aiResponse.highlightNodes
+          mode: data.highlightNodes.length > 1 ? 'multi' : 'node',
+          nodes: data.highlightNodes
         });
       }
-    }, 400);
+
+    } catch (err) {
+      console.error("❌ API ERROR:", err);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "ai",
+          text: "I'm having trouble connecting to my architecture engine right now. Please try again in a moment.",
+        },
+      ]);
+    }
   };
 
   // ── Sidebar computed values ───────────────────────────────────────────────
@@ -888,7 +870,7 @@ function SidebarSection({ title, icon, color, items, dotColor }) {
         ))}
         {overflow > 0 && (
           <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.2)', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <ChevronRight style={{ width: '10px', height: '10px' }} />
+            <Bot style={{ width: '10px', height: '10px' }} />
             {overflow} more…
           </div>
         )}

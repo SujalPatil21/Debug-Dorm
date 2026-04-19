@@ -135,10 +135,19 @@ async function fetchGitHubTree(owner: string, repo: string, branch: string): Pro
     .filter((item: any) => item.type === "blob")
     .filter((item: any) => {
         const path = item.path;
-        if (path === "package.json") return true; // Explicitly include package.json
+        if (path === "package.json" || path.endsWith("/package.json")) return true;
         const ext = `.${path.split('.').pop()}`;
         return includedExtensions.has(ext) && !excludedPatterns.some(p => p.test(path));
     });
+
+  const hasPackage = data.tree.some((f: any) => f.path === "package.json");
+  if (!hasPackage) {
+      console.warn("package.json NOT FOUND in repo tree");
+  }
+
+  console.log("TOTAL FILES:", data.tree.length);
+  console.log("PACKAGE EXISTS:", hasPackage);
+
 
   // 2. Clean Paths
   rawFiles = rawFiles.map((f: any) => ({
@@ -165,10 +174,25 @@ async function fetchGitHubTree(owner: string, repo: string, branch: string): Pro
     filesToFetch.map(async (f: any) => {
         try {
             const content = await fetchFileContent(owner, repo, f.sha);
+            let id = f.path;
+            let isConfigRoot = false;
+            let isConfigSub = false;
+
+            if (f.path === "package.json") {
+                id = "package.json";
+                isConfigRoot = true;
+            } else if (f.path.endsWith("/package.json")) {
+                id = f.path.replace(/\//g, "_");
+                isConfigSub = true;
+            }
+
             return {
-                id: f.path,
+                id: id,
                 content: content,
-                extension: "." + f.path.split(".").pop()
+                extension: "." + f.path.split(".").pop(),
+                isConfigRoot,
+                isConfigSub,
+                isPrimary: isConfigRoot
             };
         } catch (e) {
             return { id: f.path, content: "", extension: "." + f.path.split(".").pop() };
@@ -176,11 +200,28 @@ async function fetchGitHubTree(owner: string, repo: string, branch: string): Pro
     })
   );
 
-  const fallbackInputs: FileInput[] = remainingFiles.map(f => ({
-      id: f.path,
-      content: "",
-      extension: "." + f.path.split(".").pop()
-  }));
+  const fallbackInputs: FileInput[] = remainingFiles.map(f => {
+      let id = f.path;
+      let isConfigRoot = false;
+      let isConfigSub = false;
+
+      if (f.path === "package.json") {
+          id = "package.json";
+          isConfigRoot = true;
+      } else if (f.path.endsWith("/package.json")) {
+          id = f.path.replace(/\//g, "_");
+          isConfigSub = true;
+      }
+
+      return {
+          id: id,
+          content: "",
+          extension: "." + f.path.split(".").pop(),
+          isConfigRoot,
+          isConfigSub,
+          isPrimary: isConfigRoot
+      };
+  });
 
   return [...fileInputs, ...fallbackInputs];
 }
@@ -354,10 +395,18 @@ export async function ingest(input: IngestionInput): Promise<IngestionOutput> {
     }
   }
 
-  // Add SYSTEM -> package.json edge
+  // Add SYSTEM -> package.json edge, and package.json -> sub_configs
   if (allFileIds.includes("package.json")) {
     dependencies.push({ from: "SYSTEM", to: "package.json" });
+    
+    // Connect root package.json to sub-configs
+    files.forEach(f => {
+        if (f.isConfigSub) {
+            dependencies.push({ from: "package.json", to: f.id });
+        }
+    });
   }
+
 
   return { files, dependencies };
 }

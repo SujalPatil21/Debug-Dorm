@@ -36,7 +36,13 @@ export function computePriority(nodes: GraphNode[], edges: GraphEdge[]): GraphNo
 
         // Overrides
         if (node.id === "SYSTEM" || node.id === "**root**") score = Number.MAX_SAFE_INTEGER;
-        if (node.id === "package.json") score += 10;
+        
+        if (node.id === "package.json" || node.type === "config-root") {
+            score = Math.max(score, 10);
+        } else if (node.type === "config-sub") {
+            score = Math.max(score, 7);
+        }
+
 
         return { ...node, rawScore: score, inDeg, outDeg, semantic };
     });
@@ -63,6 +69,11 @@ export function computePriority(nodes: GraphNode[], edges: GraphEdge[]): GraphNo
 
         // Handle SYSTEM override
         if (sn.rawScore === Number.MAX_SAFE_INTEGER) priority = "HIGH";
+
+        // Hardcoded overrides for config nodes
+        if (sn.type === "config-root") priority = "HIGH";
+        if (sn.type === "config-sub") priority = "MEDIUM";
+
 
         const { rawScore, inDeg, outDeg, semantic, ...rest } = sn;
         

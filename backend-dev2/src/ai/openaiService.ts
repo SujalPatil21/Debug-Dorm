@@ -2,18 +2,50 @@
 // Deterministic Context-Aware Response Engine
 // replaces external AI (Gemini/OpenAI) with high-performance local intelligence.
 // -----------------------------------------------------------------------------
+import { getGroqResponse } from "../services/groqService";
+
 
 /**
  * Generates a deterministic, context-aware response using repository structure.
  */
-export async function generateChatResponse(query: string, context: any): Promise<string> {
-  const q = query.trim().toLowerCase();
-  
-  // 1. Intent Detection
-  const isSummary = q.includes("what") || q.includes("summary") || q.includes("does") || q.includes("overview");
-  const isExplanation = q.includes("explain") || q.includes("how") || q.includes("why") || q.includes("purpose");
+export async function generateChatResponse(query: string, context: any, userId: string = "anon"): Promise<string> {
+  console.log("🔥 ENTRY:", query);
 
-  // 2. Context Extraction (Real nodes from repository)
+  const lower = query.toLowerCase();
+
+  const isOverview =
+    lower.includes("overview") ||
+    lower.includes("project") ||
+    lower.includes("summary") ||
+    lower.includes("repository");
+
+  const isExplain =
+    lower.includes("explain");
+
+  let aiResponse: string | null = null;
+  const nodes = context?.graph?.nodes || [];
+
+  // 🚀 STEP 1 — FORCE GROQ EXECUTION
+  if (isOverview || isExplain) {
+    console.log("🚀 TRYING GROQ");
+
+    try {
+      aiResponse = await getGroqResponse(query, userId, nodes);
+    } catch (e: any) {
+      console.log("Groq ERROR:", e.message);
+    }
+  }
+
+  // ✅ STEP 2 — IF GROQ WORKED → RETURN
+  if (aiResponse && aiResponse.length > 20) {
+    console.log("✅ GROQ USED");
+    return aiResponse;
+  }
+
+  // ⚠️ STEP 3 — FALLBACK ONLY HERE
+  console.log("⚠️ FALLBACK TRIGGERED");
+
+  // Context Extraction Logic
   const topNodes = context?.queryContext?.topNodes || [];
   let fileNames = topNodes
     .map((n: string) => {
@@ -27,11 +59,10 @@ export async function generateChatResponse(query: string, context: any): Promise
     return "This repository can be explored through its core structure and architectural entry points.";
   }
 
-  // 3. Natural Shuffling for Variety
   fileNames = fileNames.sort(() => 0.5 - Math.random()).slice(0, 3);
   const filesText = fileNames.join(", ");
 
-  // 4. Template Pools
+  // Template Pools
   const summaryTemplates = [
     "This repository is structured around {files}, forming the foundation of its architecture.",
     "At a high level, the system is built using {files}, which define its primary structure.",
@@ -105,21 +136,19 @@ export async function generateChatResponse(query: string, context: any): Promise
     ""
   ];
 
-  // 5. Selection & Variation
   function pickRandom(arr: string[]): string {
     return arr[Math.floor(Math.random() * arr.length)];
   }
 
   let template: string;
-  if (isSummary) template = pickRandom(summaryTemplates);
-  else if (isExplanation) template = pickRandom(explanationTemplates);
+  if (isOverview) template = pickRandom(summaryTemplates);
+  else if (isExplain) template = pickRandom(explanationTemplates);
   else template = pickRandom(defaultTemplates);
 
-  let response = template.replace("{files}", filesText);
-  response += pickRandom(endings);
+  let responseText = template.replace("{files}", filesText);
+  responseText += pickRandom(endings);
 
-  // 6. Response Clean/Limit
-  return response.slice(0, 250);
+  return responseText.slice(0, 250);
 }
 
 /**

@@ -91,15 +91,17 @@ router.post("/query", async (req: Request, res: Response) => {
 
     try {
       const aiAnswer = await Promise.race([
-        generateChatResponse(userQuery, context),
+        generateChatResponse(userQuery, context, req.ip || "anon"),
         timeoutPromise
       ]);
 
       if (aiAnswer) {
-        return res.status(200).json({
+        const responseData = {
           ...deterministicResult,
           answer: aiAnswer
-        });
+        };
+        console.log("📦 FINAL RESPONSE SENT:", responseData);
+        return res.status(200).json(responseData);
       }
     } catch (error) {
       // Silence internal errors in production, fallback below

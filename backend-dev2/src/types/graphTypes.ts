@@ -6,6 +6,9 @@ export type FileInput = {
   isConfig?: boolean;
   totalDeps?: number;
   framework?: string;
+  isPrimary?: boolean;
+  isConfigRoot?: boolean;
+  isConfigSub?: boolean;
 };
 
 export type DependencyInput = {
@@ -27,9 +30,12 @@ export type GraphNode = {
   impact: number;
   dependencies: string[];
   dependents: string[];
-  type: 'file' | 'folder';
+  type: 'file' | 'folder' | 'config-root' | 'config-sub';
   position: { x: number; y: number };
   highlight: boolean;
+  isPrimary?: boolean;
+  isConfigRoot?: boolean;
+  isConfigSub?: boolean;
   techStack?: string[];
   framework?: string;
   isConfig?: boolean;

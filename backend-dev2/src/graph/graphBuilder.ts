@@ -42,15 +42,45 @@ export function buildArchitectureGraph(input: {
       impact: 0,
       dependencies: [],
       dependents: [],
-      type: 'file',
+      type: file.isConfigRoot ? 'config-root' : (file.isConfigSub ? 'config-sub' : 'file'),
       position: { x: 0, y: 0 },
-      highlight: false
+      highlight: false,
+      isConfigRoot: file.isConfigRoot,
+      isConfigSub: file.isConfigSub,
+      isPrimary: file.isPrimary
     };
 
     nodesMap.set(file.id, node);
     allNodes.push(node);
     g.setNode(file.id);
   }
+
+  // --- Mandatory Fallback Injection ---
+  const hasRootPackage = allNodes.some(n => n.id === "package.json");
+  if (!hasRootPackage) {
+      console.warn("package.json NOT FOUND — FORCE-INJECTING FALLBACK");
+      const fallback: GraphNode = {
+          id: "package.json",
+          name: "package.json",
+          label: "package.json",
+          folder: "root",
+          layer: "infrastructure",
+          impact: 10,
+          dependencies: [],
+          dependents: [],
+          type: 'config-root',
+          position: { x: 0, y: 0 },
+          highlight: false,
+          isConfigRoot: true,
+          isPrimary: true
+      };
+      nodesMap.set("package.json", fallback);
+      allNodes.push(fallback);
+      g.setNode("package.json");
+  }
+  
+  console.log("NODE EXISTS (package.json):", nodesMap.has("package.json"));
+
 
   // 1b. Folder Node Creation (City Centers)
   for (const folderPath of folderSet) {
@@ -134,6 +164,13 @@ export function buildArchitectureGraph(input: {
       const entryNode = nodesMap.get(entryNodeId);
       if (entryNode) visibleSubset.push(entryNode);
   }
+
+  // PRUNING IMMUNITY: package.json must ALWAYS be visible
+  if (!visibleNodeIds.has("package.json")) {
+    const pkg = nodesMap.get("package.json");
+    if (pkg) visibleSubset.push(pkg);
+  }
+
 
   // Ensure Folder parents are visible for files
   const finalVisibleNodes: GraphNode[] = [];
