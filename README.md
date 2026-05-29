@@ -8,7 +8,7 @@ Archflow is an AI-powered codebase visualization tool that transforms any GitHub
 
 Archflow analyzes a repository and builds a structured graph where:
 
-- Nodes represent files or modules
+- Nodes represent files or modules 
 - Edges represent dependencies and relationships
 - Priority and impact are visually encoded
 - AI provides contextual explanations and insights
